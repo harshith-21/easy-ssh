@@ -5,6 +5,8 @@ Web-based SSH client + Kubernetes exec via browser. Fully Dockerized. Runs on `l
 ## Stack
 Python, Django, Django Channels (WebSockets), SQLite, paramiko (SSH), kubectl (K8s), xterm.js, Redis, Docker
 
+![](/images/Screenshot%202025-11-20%20at%2010.25.17 AM.png)
+
 ## Quick Start
 
 ```bash
