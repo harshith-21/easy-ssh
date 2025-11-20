@@ -1,0 +1,166 @@
+{% extends "terminal/base.html" %}
+
+{% block title %}Terminal - {{ host.name }}{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css" />
+<style>
+    body {
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+    }
+    
+    #terminal-header {
+        background: #2a2a2a;
+        padding: 10px 20px;
+        border-bottom: 2px solid #444;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    
+    #terminal-title {
+        color: #fff;
+        font-size: 16px;
+        font-weight: 500;
+    }
+    
+    #terminal-info {
+        color: #999;
+        font-size: 12px;
+    }
+    
+    #terminal-container {
+        width: 100vw;
+        height: calc(100vh - 50px);
+        background: #000;
+    }
+    
+    #terminal {
+        width: 100%;
+        height: 100%;
+        padding: 10px;
+    }
+    
+    .status {
+        display: inline-block;
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        margin-right: 8px;
+    }
+    
+    .status-connected {
+        background: #4CAF50;
+    }
+    
+    .status-disconnected {
+        background: #f44336;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div id="terminal-header">
+    <div>
+        <span id="connection-status" class="status status-disconnected"></span>
+        <span id="terminal-title">{{ host.name }} - Session #{{ session_num }}</span>
+    </div>
+    <div id="terminal-info">
+        {{ host.hostname }} | {{ credential.name }}
+    </div>
+</div>
+<div id="terminal-container">
+    <div id="terminal"></div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
+<script>
+    const term = new Terminal({
+        cursorBlink: true,
+        fontSize: 14,
+        fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+        theme: {
+            background: '#000000',
+            foreground: '#ffffff',
+            cursor: '#ffffff',
+            selection: 'rgba(255, 255, 255, 0.3)',
+            black: '#000000',
+            red: '#e06c75',
+            green: '#98c379',
+            yellow: '#d19a66',
+            blue: '#61afef',
+            magenta: '#c678dd',
+            cyan: '#56b6c2',
+            white: '#abb2bf',
+            brightBlack: '#5c6370',
+            brightRed: '#e06c75',
+            brightGreen: '#98c379',
+            brightYellow: '#d19a66',
+            brightBlue: '#61afef',
+            brightMagenta: '#c678dd',
+            brightCyan: '#56b6c2',
+            brightWhite: '#ffffff'
+        }
+    });
+    
+    const fitAddon = new FitAddon.FitAddon();
+    term.loadAddon(fitAddon);
+    
+    term.open(document.getElementById('terminal'));
+    fitAddon.fit();
+    
+    // WebSocket connection
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${protocol}//${window.location.host}/ws/terminal/{{ host.id }}/{{ credential.id }}/{{ session_num }}/`;
+    const socket = new WebSocket(wsUrl);
+    
+    socket.onopen = function(e) {
+        console.log('WebSocket connected');
+        document.getElementById('connection-status').className = 'status status-connected';
+        term.write('\r\n\x1b[1;32mConnected to {{ host.name }}\x1b[0m\r\n\r\n');
+    };
+    
+    socket.onmessage = function(event) {
+        const data = JSON.parse(event.data);
+        if (data.error) {
+            term.write(`\r\n\x1b[1;31mError: ${data.error}\x1b[0m\r\n`);
+        } else if (data.data) {
+            term.write(data.data);
+        }
+    };
+    
+    socket.onerror = function(error) {
+        console.error('WebSocket error:', error);
+        term.write('\r\n\x1b[1;31mConnection error\x1b[0m\r\n');
+    };
+    
+    socket.onclose = function(event) {
+        console.log('WebSocket closed');
+        document.getElementById('connection-status').className = 'status status-disconnected';
+        term.write('\r\n\x1b[1;31mConnection closed\x1b[0m\r\n');
+    };
+    
+    // Send data to server
+    term.onData(function(data) {
+        if (socket.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify({ data: data }));
+        }
+    });
+    
+    // Handle window resize
+    window.addEventListener('resize', () => {
+        fitAddon.fit();
+    });
+    
+    // Handle tab close
+    window.addEventListener('beforeunload', () => {
+        socket.close();
+    });
+</script>
+{% endblock %}
+

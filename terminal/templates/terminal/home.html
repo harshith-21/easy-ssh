@@ -1,0 +1,315 @@
+{% extends "terminal/base.html" %}
+
+{% block title %}Easy SSH - Home{% endblock %}
+
+{% block content %}
+<div class="container">
+    <h1>🔐 Easy SSH Manager</h1>
+    
+    <div style="margin-bottom: 30px;">
+        <button class="btn btn-primary" onclick="openCredentialModal()">+ Add Credential</button>
+        <button class="btn btn-secondary" onclick="openHostModal()">+ Add Host</button>
+    </div>
+    
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 30px;">
+        <!-- Credentials Section -->
+        <div>
+            <h2>Credentials</h2>
+            <div id="credentials-list">
+                {% for cred in credentials %}
+                <div class="card">
+                    <h3>{{ cred.name }}</h3>
+                    <span class="badge {% if cred.credential_type == 'ssh_key' %}badge-ssh{% else %}badge-k8s{% endif %}">
+                        {{ cred.get_credential_type_display }}
+                    </span>
+                    {% if cred.username %}
+                    <p style="margin-top: 10px; color: #999;">Username: {{ cred.username }}</p>
+                    {% endif %}
+                    <p style="margin-top: 5px; color: #666; font-size: 12px;">Created: {{ cred.created_at|date:"Y-m-d H:i" }}</p>
+                    <div class="actions">
+                        <button class="btn btn-danger" onclick="deleteCredential({{ cred.id }})">Delete</button>
+                    </div>
+                </div>
+                {% empty %}
+                <p style="color: #999;">No credentials added yet.</p>
+                {% endfor %}
+            </div>
+        </div>
+        
+        <!-- Hosts Section -->
+        <div>
+            <h2>Hosts</h2>
+            <div id="hosts-list">
+                {% for host in hosts %}
+                <div class="card">
+                    <h3>{{ host.name }}</h3>
+                    <span class="badge {% if host.host_type == 'baremetal' %}badge-ssh{% else %}badge-k8s{% endif %}">
+                        {{ host.get_host_type_display }}
+                    </span>
+                    <p style="margin-top: 10px; color: #999;">
+                        {% if host.host_type == 'baremetal' %}
+                        {{ host.hostname }}:{{ host.port }}
+                        {% else %}
+                        Pod: {{ host.hostname }}{% if host.namespace %} (ns: {{ host.namespace }}){% endif %}
+                        {% endif %}
+                    </p>
+                    {% if host.default_credential %}
+                    <p style="margin-top: 5px; color: #666; font-size: 12px;">Default Credential: {{ host.default_credential.name }}</p>
+                    {% endif %}
+                    <div class="actions">
+                        <a href="/open-connection/{{ host.id }}/" class="btn btn-primary" target="_blank">Connect</a>
+                        <button class="btn btn-danger" onclick="deleteHost({{ host.id }})">Delete</button>
+                    </div>
+                </div>
+                {% empty %}
+                <p style="color: #999;">No hosts added yet.</p>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Add Credential Modal -->
+<div id="credentialModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h2>Add Credential</h2>
+            <span class="close" onclick="closeCredentialModal()">&times;</span>
+        </div>
+        <form id="credentialForm">
+            <div class="form-group">
+                <label>Name</label>
+                <input type="text" id="cred_name" required>
+            </div>
+            <div class="form-group">
+                <label>Type</label>
+                <select id="cred_type" onchange="toggleCredentialFields()" required>
+                    <option value="ssh_key">SSH Key</option>
+                    <option value="kubeconfig">Kubeconfig</option>
+                </select>
+            </div>
+            <div class="form-group" id="username_field">
+                <label>Username (for SSH)</label>
+                <input type="text" id="cred_username">
+            </div>
+            <div class="form-group">
+                <label>Content</label>
+                <textarea id="cred_content" placeholder="Paste SSH private key or kubeconfig content here..." required></textarea>
+            </div>
+            <button type="submit" class="btn btn-primary">Add Credential</button>
+        </form>
+    </div>
+</div>
+
+<!-- Add Host Modal -->
+<div id="hostModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h2>Add Host</h2>
+            <span class="close" onclick="closeHostModal()">&times;</span>
+        </div>
+        <form id="hostForm">
+            <div class="form-group">
+                <label>Name</label>
+                <input type="text" id="host_name" required>
+            </div>
+            <div class="form-group">
+                <label>Type</label>
+                <select id="host_type" onchange="toggleHostFields()" required>
+                    <option value="baremetal">Baremetal/VM</option>
+                    <option value="k8s_pod">Kubernetes Pod</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label id="hostname_label">Hostname/IP</label>
+                <input type="text" id="host_hostname" required>
+            </div>
+            <div class="form-group" id="port_field">
+                <label>Port</label>
+                <input type="number" id="host_port" value="22">
+            </div>
+            <div class="form-group" id="namespace_field" style="display: none;">
+                <label>Namespace</label>
+                <input type="text" id="host_namespace" value="default">
+            </div>
+            <div class="form-group" id="container_field" style="display: none;">
+                <label>Container (optional)</label>
+                <input type="text" id="host_container">
+            </div>
+            <div class="form-group">
+                <label>Default Credential (optional)</label>
+                <select id="host_credential">
+                    <option value="">-- Select --</option>
+                    {% for cred in credentials %}
+                    <option value="{{ cred.id }}">{{ cred.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <button type="submit" class="btn btn-primary">Add Host</button>
+        </form>
+    </div>
+</div>
+
+<script>
+function openCredentialModal() {
+    document.getElementById('credentialModal').style.display = 'block';
+}
+
+function closeCredentialModal() {
+    document.getElementById('credentialModal').style.display = 'none';
+    document.getElementById('credentialForm').reset();
+}
+
+function openHostModal() {
+    document.getElementById('hostModal').style.display = 'block';
+}
+
+function closeHostModal() {
+    document.getElementById('hostModal').style.display = 'none';
+    document.getElementById('hostForm').reset();
+    toggleHostFields();
+}
+
+function toggleCredentialFields() {
+    const type = document.getElementById('cred_type').value;
+    const usernameField = document.getElementById('username_field');
+    if (type === 'ssh_key') {
+        usernameField.style.display = 'block';
+    } else {
+        usernameField.style.display = 'none';
+    }
+}
+
+function toggleHostFields() {
+    const type = document.getElementById('host_type').value;
+    const portField = document.getElementById('port_field');
+    const namespaceField = document.getElementById('namespace_field');
+    const containerField = document.getElementById('container_field');
+    const hostnameLabel = document.getElementById('hostname_label');
+    
+    if (type === 'baremetal') {
+        portField.style.display = 'block';
+        namespaceField.style.display = 'none';
+        containerField.style.display = 'none';
+        hostnameLabel.textContent = 'Hostname/IP';
+    } else {
+        portField.style.display = 'none';
+        namespaceField.style.display = 'block';
+        containerField.style.display = 'block';
+        hostnameLabel.textContent = 'Pod Name';
+    }
+}
+
+document.getElementById('credentialForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    
+    const data = {
+        name: document.getElementById('cred_name').value,
+        credential_type: document.getElementById('cred_type').value,
+        content: document.getElementById('cred_content').value,
+        username: document.getElementById('cred_username').value
+    };
+    
+    try {
+        const response = await fetch('/api/credential/add/', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(data)
+        });
+        
+        if (response.ok) {
+            alert('Credential added successfully!');
+            location.reload();
+        } else {
+            const error = await response.json();
+            alert('Error: ' + error.error);
+        }
+    } catch (e) {
+        alert('Error: ' + e.message);
+    }
+});
+
+document.getElementById('hostForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    
+    const data = {
+        name: document.getElementById('host_name').value,
+        host_type: document.getElementById('host_type').value,
+        hostname: document.getElementById('host_hostname').value,
+        port: document.getElementById('host_port').value,
+        namespace: document.getElementById('host_namespace').value,
+        container: document.getElementById('host_container').value,
+        default_credential_id: document.getElementById('host_credential').value || null
+    };
+    
+    try {
+        const response = await fetch('/api/host/add/', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(data)
+        });
+        
+        if (response.ok) {
+            alert('Host added successfully!');
+            location.reload();
+        } else {
+            const error = await response.json();
+            alert('Error: ' + error.error);
+        }
+    } catch (e) {
+        alert('Error: ' + e.message);
+    }
+});
+
+async function deleteCredential(id) {
+    if (!confirm('Are you sure you want to delete this credential?')) return;
+    
+    try {
+        const response = await fetch(`/api/credential/delete/${id}/`, {
+            method: 'POST'
+        });
+        
+        if (response.ok) {
+            location.reload();
+        } else {
+            const error = await response.json();
+            alert('Error: ' + error.error);
+        }
+    } catch (e) {
+        alert('Error: ' + e.message);
+    }
+}
+
+async function deleteHost(id) {
+    if (!confirm('Are you sure you want to delete this host?')) return;
+    
+    try {
+        const response = await fetch(`/api/host/delete/${id}/`, {
+            method: 'POST'
+        });
+        
+        if (response.ok) {
+            location.reload();
+        } else {
+            const error = await response.json();
+            alert('Error: ' + error.error);
+        }
+    } catch (e) {
+        alert('Error: ' + e.message);
+    }
+}
+
+// Close modal when clicking outside
+window.onclick = function(event) {
+    const credModal = document.getElementById('credentialModal');
+    const hostModal = document.getElementById('hostModal');
+    if (event.target == credModal) {
+        closeCredentialModal();
+    }
+    if (event.target == hostModal) {
+        closeHostModal();
+    }
+}
+</script>
+{% endblock %}
+

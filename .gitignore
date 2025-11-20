@@ -1,0 +1,13 @@
+*.pyc
+__pycache__/
+*.sqlite3
+db.sqlite3
+venv/
+.env
+*.log
+.DS_Store
+*.pem
+*.key
+*.kubeconfig
+db/
+
